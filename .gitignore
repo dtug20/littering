@@ -1,0 +1,40 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing and virtual environments
+.pytest_cache/
+.python_vendor/
+.venv/
+venv/
+env/
+
+# DeepStream / TensorRT engine and plan files (hardware-specific)
+*.engine
+*.plan
+
+# Model weights (large binary files > 20MB-50MB; download/export via models/README.md)
+*.pt
+*.onnx
+*.weights
+
+# C/C++ object files from DeepStream-Yolo build
+*.o
+
+# Logs and runtime artifacts
+*.log
+scratch/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Large video/media test recordings
+*.mp4
+*.avi
+*.mkv
+*.h264
+*.264

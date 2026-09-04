@@ -1,0 +1,36 @@
+[property]
+gpu-id=0
+net-scale-factor=0.0039215697906911373
+model-color-format=0
+model-engine-file=../models/yolo11s.engine
+labelfile-path=../models/labels.txt
+batch-size=1
+network-mode=2
+num-detected-classes=80
+# NvDCF dự đoán bbox ở frame xen kẽ, giảm gần một nửa lượt YOLO11 PGIE.
+interval=1
+gie-unique-id=1
+process-mode=1
+cluster-mode=2
+maintain-aspect-ratio=1
+symmetric-padding=1
+# Keep person/vehicle plus portable-object IDs:
+# backpack=24, umbrella=25, handbag=26, suitcase=28, bottle=39, cup=41,
+# laptop=63, mouse=64, remote=65, keyboard=66, cell phone=67, book=73.
+filter-out-class-ids=4;6;8;9;10;11;12;13;14;15;16;17;18;19;20;21;22;23;27;29;30;31;32;33;34;35;36;37;38;40;42;43;44;45;46;47;48;49;50;51;52;53;54;55;56;57;58;59;60;61;62;68;69;70;71;72;74;75;76;77;78;79
+parse-bbox-func-name=NvDsInferParseYolo11
+custom-lib-path=../models/DeepStream-Yolo/nvdsinfer_custom_impl_Yolo/libnvdsinfer_custom_impl_Yolo.so
+
+[class-attrs-all]
+pre-cluster-threshold=0.30
+nms-iou-threshold=0.45
+topk=100
+
+# COCO class 2 = car. Siết proposal car ngay tại PGIE để các vùng nền có hình
+# dáng giống xe không đi vào NvDCF và tồn tại dai dẳng trên liveview.
+[class-attrs-2]
+pre-cluster-threshold=0.50
+nms-iou-threshold=0.45
+detected-min-w=32
+detected-min-h=24
+topk=50

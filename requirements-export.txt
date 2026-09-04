@@ -1,0 +1,4 @@
+# Chỉ dùng ngoại tuyến để tải/đóng băng prompt và export YOLO-World -> ONNX.
+# Container runtime không cần PyTorch/Ultralytics.
+ultralytics>=8.4.7,<9
+onnx>=1.19.0,<2

@@ -1,0 +1,266 @@
+# ============================================================
+# Cấu hình chung cho hệ thống Phát hiện đồ vật bị bỏ lại (AOD) - v3
+# Kiến trúc Person-Centric: detect person → track departure → check vật bỏ lại
+# ============================================================
+
+system:
+  app_name: "aod_engine"
+  log_level: "INFO"
+
+cameras:
+  - camera_id: "cam_01"
+    uri: "rtsp://user:pass@192.168.1.64:554/Streaming/Channels/101"
+    enable: true
+    roi_polygons:
+      - name: "khu_vuc_1"
+        points: [[100, 200], [900, 200], [900, 700], [100, 700]]
+    baseline_learning_seconds: 60
+
+  - camera_id: "cam_02"
+    uri: "rtsp://user:pass@192.168.1.65:554/Streaming/Channels/101"
+    enable: false
+    roi_polygons: []
+    baseline_learning_seconds: 60
+
+detection:
+  # PGIE COCO: person, phương tiện và các đồ vật xách tay đã biết.
+  pgie_config_path: "configs/pgie_config.txt"
+  tracker_config_path: "configs/tracker_config.txt"
+  person_class: "person"
+  vehicle_classes: ["bicycle", "car", "motorcycle", "bus", "truck"]
+  object_classes:
+    - "backpack"
+    - "umbrella"
+    - "handbag"
+    - "suitcase"
+    - "bottle"
+    - "cup"
+    - "laptop"
+    - "mouse"
+    - "remote"
+    - "keyboard"
+    - "cell phone"
+    - "book"
+  min_confidence: 0.55
+  object_min_confidence: 0.30
+  # ngưỡng kích thước tối thiểu của bbox vật thể (theo % diện tích khung hình)
+  min_object_area_ratio: 0.0005
+
+# Chỉ đưa phương tiện lên web sau nhiều lần PGIE xác nhận. Confidence âm ở
+# frame NvDCF dự đoán chỉ được dùng để nối một track đã xác nhận trước đó.
+vehicle_filter:
+  enabled: true
+  min_detector_confidence: 0.45
+  class_min_confidence:
+    car: 0.55
+    truck: 0.48
+    bus: 0.48
+    motorcycle: 0.45
+    bicycle: 0.45
+  min_detector_hits: 2
+  confirmation_window_seconds: 1.5
+  max_detector_gap_seconds: 1.5
+  confirmation_iou_threshold: 0.20
+  min_area_ratio: 0.0008
+  max_area_ratio: 0.55
+  min_aspect_ratio: 0.40
+  max_aspect_ratio: 4.50
+  class_min_aspect_ratio:
+    car: 0.75
+
+# Nguồn bbox object chính. Model YOLO-World này có prompt garbage/plastic bag
+# nên bắt được túi bóng không có trong taxonomy COCO. Hard-negative (person,
+# backpack, suitcase...) phải thua target một khoảng margin trước khi nhận box.
+object_detection:
+  enabled: true
+  backend: "onnx_yolo_world"
+  model_path: "models/yolov8s-worldv2-bags-640.onnx"
+  target_labels:
+    - "black plastic garbage bag"
+    - "white plastic garbage bag"
+    - "transparent plastic bag"
+    - "tied trash bag"
+    - "garbage bag on pavement"
+    - "pile of garbage bags"
+    - "discarded shopping bag"
+    - "dumped household waste"
+  # DeepStream giữ GPU cho PGIE/NvDCF; YOLO-World chạy thưa trên CPU để tránh
+  # xung đột CUDA/CUDNN khi pipeline bị khởi tạo lại.
+  providers: ["CPUExecutionProvider"]
+  cpu_intra_op_threads: 2
+  cpu_inter_op_threads: 1
+  min_confidence: 0.12
+  # Túi thật đo được margin 0.106-0.136; 0.08 loại prompt mơ hồ nhưng vẫn giữ túi.
+  min_target_margin: 0.08
+  nms_iou_threshold: 0.35
+  max_detections: 5
+  tile_enabled: true
+  tile_overlap_ratio: 0.20
+  tile_aspect_ratio_threshold: 1.60
+  # Frame CPU được lấy mỗi 5 frame video; chạy semantic YOLO mỗi 5 frame
+  # CPU (~0.4-0.6 FPS/model/camera), template tracker giữ box ở giữa.
+  inference_interval_samples: 5
+  # YOLO-World cần ngữ cảnh toàn cảnh ở camera này; bbox sau inference vẫn bị
+  # lọc cứng theo polygon nên vùng ngoài ROI không được publish/event.
+  roi_crop_enabled: false
+  roi_crop_padding_ratio: 0.08
+  # Khi web chưa có ROI, bỏ vùng cao (mái nhà/biển/cửa sổ) và candidate nằm
+  # phần lớn trong person/vehicle. Litter chỉ được xét trên mặt đất.
+  min_bbox_center_y_ratio: 0.25
+  max_dynamic_overlap_ratio: 0.35
+  iou_match_threshold: 0.25
+  stationary_center_shift_px: 35
+  # Dài hơn hai chu kỳ YOLO (mỗi chu kỳ khoảng 2-3 giây), tránh đổi UUID nếu
+  # model miss đúng một lượt. Khi vật thật biến mất, state machine vẫn xác
+  # nhận removal riêng nên độ trễ này không phát event giả ngay lập tức.
+  max_missed_seconds: 6.0
+  # Track chưa đủ đồng thuận chỉ sống qua một chu kỳ detector và không publish.
+  unconfirmed_max_missed_seconds: 6.0
+  # Một hit YOLO-World có margin mạnh được giữ qua 2-3 lần model miss. Đây là
+  # hysteresis cho đúng túi đã thấy, không làm candidate yếu được publish.
+  strong_max_missed_seconds: 15.0
+  bbox_smoothing_alpha: 0.35
+  visual_tracking_enabled: true
+  visual_match_threshold: 0.65
+  # Track margin mạnh được bám ngay từ hit đầu bằng template CPU. Ngưỡng thấp
+  # hơn nhẹ để chịu được thay đổi khi người vừa rời khỏi túi.
+  strong_visual_margin: 0.10
+  strong_visual_match_threshold: 0.58
+  visual_bbox_smoothing_alpha: 0.30
+  visual_search_padding_ratio: 0.75
+  min_semantic_hits_for_visual: 3
+  min_semantic_hits_for_static: 3
+  min_semantic_hits_for_publish: 2
+  strong_publish_margin: 0.10
+  track_nms_iou_threshold: 0.35
+  track_containment_threshold: 0.70
+
+# Chính sách ROI cho camera nhận động từ web.
+roi:
+  # Broker zone 42 hiện trả ai_zones=[] cho xa_rac. Cho phép xử lý toàn frame
+  # cho tới khi web cấu hình polygon; ROI mới vẫn được áp ngay qua MQTT.
+  required: false
+
+# === PERSON-CENTRIC DETECTION (MỚI - v3) ===
+person_departure:
+  # Thời gian person phải biến mất trước khi kiểm tra vật bỏ lại (giây)
+  # Tránh false positive khi person bị occlude tạm thời bởi đám đông
+  departure_confirm_seconds: 3.0
+  # Padding xung quanh vị trí cuối của person để crop so sánh (px trên frame nhỏ)
+  region_padding_px: 50
+  # Ngưỡng SSIM để coi là "có thay đổi" (0-1, càng thấp càng nhạy)
+  ssim_change_threshold: 0.80
+  # Thời gian tối thiểu person đứng yên tại 1 vị trí để tính dwell zone (giây)
+  min_dwell_seconds: 2.0
+  # Số snapshot reference lưu cho mỗi person
+  max_reference_snapshots: 3
+  # Khoảng cách tối đa (px) giữa 2 vị trí liên tiếp để coi person đứng yên
+  stationary_distance_px: 40.0
+  # Khoảng cách tối đa (px) để match dwell zone cũ
+  dwell_zone_match_distance: 60.0
+  # Diện tích contour tối thiểu khi so sánh SSIM diff
+  min_contour_area_px: 300
+
+# Liên kết phương tiện với hành vi đổ rác. Xe phải dừng trong cùng polygon
+# đủ lâu; xe chỉ chạy ngang qua ROI không được gắn vào sự kiện.
+illegal_dumping:
+  min_vehicle_dwell_seconds: 2.0
+  vehicle_history_window_seconds: 15.0
+  vehicle_max_distance_px: 400.0
+  max_vehicle_tracking_gap_seconds: 1.5
+
+# MOG2 giờ CHỈ dùng để VERIFY cục bộ (không quét toàn frame)
+mog:
+  enable: true
+  history: 500
+  var_threshold: 25
+  detect_shadows: true
+  short_term_learning_rate: 0.005
+  long_term_learning_rate: 0.0003
+  min_blob_area_px: 500
+
+# Bộ lọc hình học class-agnostic + bổ sung filter mới v3
+shape_filters:
+  min_aspect_ratio: 0.15   # quá dẹt/quá cao -> loại (cột, bóng đổ dài)
+  max_aspect_ratio: 6.0
+  min_solidity: 0.35       # hình dạng rời rạc -> loại (nhiễu ánh sáng, lá cây)
+  min_extent: 0.25
+  # === Mới v3 ===
+  min_width_px: 20         # kích thước tối thiểu tuyệt đối
+  min_height_px: 20
+  max_area_ratio: 0.25     # tối đa 25% diện tích frame
+  max_width_ratio: 0.50    # chặn dải nhiễu quá rộng
+  max_height_ratio: 0.60   # chặn dải nhiễu cao gần hết frame
+  max_person_overlap_ratio: 0.20  # loại vùng thay đổi nằm trong người
+  min_area_ratio: 0.0005   # semantic detector cho phép túi nhỏ >= 0.05% frame
+  min_edge_density: 0.02   # vật thật phải có cạnh rõ (loại bóng đổ, ánh sáng)
+
+association:
+  # IoU tối thiểu để match blob giữa các frame liên tiếp (BlobTracker)
+  iou_match_threshold: 0.3
+  # EMA thấp giúp bbox MOG bớt rung nhưng vẫn bám thay đổi chậm.
+  bbox_smoothing_alpha: 0.25
+
+ownership:
+  # cửa sổ thời gian nhìn lại lịch sử vị trí người để suy ra "ai vừa đặt đồ xuống"
+  history_window_seconds: 5.0
+  # khoảng cách tối đa (px) để một người được coi là "chủ" tại thời điểm xác nhận
+  owner_max_distance_px: 200.0
+
+abandonment_rules:
+  # số frame liên tiếp blob phải được match trước khi coi là ứng viên hợp lệ
+  static_confirm_frames: 8
+  # khoảng cách tâm bbox (px) để coi là "chủ nhân còn đứng cạnh đồ vật"
+  owner_distance_threshold_px: 150
+  # thời gian đồ vật đứng yên + chủ nhân rời xa trước khi cảnh báo (giây)
+  abandonment_dwell_seconds: 5
+  # cho phép đồ vật bị che khuất tạm thời tối đa (giây)
+  max_occlusion_gap_seconds: 5
+  # sau khi phát hiện người chạm/chồng lấn vị trí vật rồi vật biến mất, chờ
+  # bao lâu trước khi xác nhận "đã bị nhặt đi"
+  pickup_confirm_gap_seconds: 3.0
+  # Ân hạn khi NvDCF mất ID chủ sở hữu ngắn hạn.
+  owner_lost_grace_seconds: 2.0
+
+# === BỘ LỌC SEMANTIC TÙY CHỌN ===
+# Tắt để hiển thị bbox và phát event cho mọi vật tĩnh hợp lệ trong
+# polygon. Bật lại nếu nghiệp vụ chỉ muốn cảnh báo túi rác/rác thải.
+target_filter:
+  enabled: false
+  # YOLO-World pretrained với prompt đóng băng trong ONNX: không train riêng.
+  backend: "onnx_yolo_world"
+  model_path: "models/yolov8s-worldv2.onnx"
+  target_labels:
+    - "black garbage bag"
+    - "plastic garbage bag"
+    - "garbage bags on street"
+    - "pile of garbage bags"
+    - "dumped household waste"
+    - "scattered litter"
+  # Các prompt cạnh tranh đã đóng trong ONNX: backpack, suitcase, reusable
+  # shopping bag, paper shopping bag, cardboard box, trash bin, person.
+  # Target phải thắng hard-negative ít nhất min_target_margin.
+  providers: ["CUDAExecutionProvider", "CPUExecutionProvider"]
+  min_confidence: 0.35
+  min_target_margin: 0.05
+  crop_padding_ratio: 0.15
+  confirmations: 3             # ít nhất 3 frame đồng ý
+  max_samples: 5
+  min_positive_ratio: 0.60
+  sample_interval_seconds: 0.15
+  fail_on_model_error: true
+
+# (Tuỳ chọn) Gắn nhãn mô tả đồ vật kiểu zero-shot
+labeling:
+  backend: "none"
+  device: "cuda"
+  candidate_labels:
+    - "a backpack"
+    - "a suitcase"
+    - "a cardboard box"
+    - "a plastic bag"
+    - "a helmet"
+    - "a bottle"
+    - "a bicycle"
+    - "an umbrella"
+    - "an unidentified object"

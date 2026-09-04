@@ -1,0 +1,14 @@
+%YAML:1.0
+
+BaseConfig:
+  minDetectorConfidence: 0
+
+TargetManagement:
+  preserveStreamUpdateOrder: 0
+  maxTargetsPerStream: 99
+  # Ngưỡng bắt đầu track, để nhỏ để track bám nhanh
+  probationAge: 3
+  earlyTerminationAge: 1
+  # Tăng maxShadowTrackingAge lên rất lớn (ví dụ 60 frame = 4 giây ở 15fps)
+  # để NvDCF giữ ID bền bỉ qua các khoảng miss detection (do YOLO sót hoặc do giảm fps).
+  maxShadowTrackingAge: 60

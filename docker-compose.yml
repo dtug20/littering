@@ -1,0 +1,43 @@
+services:
+  aod-engine:
+    # Sử dụng trực tiếp image sẵn có theo yêu cầu, không build image mới
+    image: huyquang/deepstream-app:8.0
+    container_name: aod_engine
+    runtime: nvidia
+    privileged: true
+    # Mount toàn bộ source code vào thư mục /app trong container
+    working_dir: /app
+    volumes:
+      - .:/app
+    # Yêu cầu NVIDIA runtime để chạy DeepStream
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video, compute, utility]
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app/.python_vendor:/app
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    # Khởi chạy script chính
+    command: ["python3", "-m", "src.main"]
+    # Giới hạn ghi log để tránh đầy ổ cứng
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - custom_aod_network
+
+networks:
+  custom_aod_network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        # Cấu hình dải IP 10.50.0.0/16 để tránh trùng lặp với dải 192.168.x.x
+        - subnet: 10.50.0.0/16

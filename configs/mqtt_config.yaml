@@ -1,0 +1,60 @@
+mqtt:
+  enabled: true
+  broker: "192.168.1.200"
+  port: 18648
+  username: ""
+  password: ""
+  client_id: "littering_detection_engine"
+  ai_module: "LITTERING_DETECTION"
+  zone_id: 42
+  camera_topic: "smart_vms/cameras/zone/{zone_id}"
+  camera_request_topic: "smart_vms/cameras/getdevice/zone/{zone_id}"
+  zones_topic: "smart_vms/cameras/{camera_code}/ai_zones"
+  bbox_topic: "smart_vms/ai/bbox/{camera_code}"
+  events_topic: "smart_vms/ai_events/{ai_module}"
+
+qos:
+  publish_bbox: 0
+  publish_event: 1
+  publish_cmd_response: 1
+  request_camera_list: 1
+
+# Web chỉ nhận cảnh báo nghiệp vụ LITTERING. Event claimed/removed vẫn được
+# xử lý nội bộ nhưng không đổi nghĩa thành một cảnh báo littering mới.
+event_source_types: ["object_abandoned"]
+
+# payload_template dùng cú pháp Python str.format với các field có sẵn.
+# Có thể đổi tên field / thêm bớt field tuỳ ý mà KHÔNG cần sửa code,
+# miễn giữ nguyên các placeholder {tên_field} mà engine cung cấp
+# (xem danh sách placeholder trong README.md).
+payload_templates:
+  bbox:
+    camera_id: "{camera_id}"
+    camera_code: "{camera_code}"
+    camera_name: "{camera_name}"
+    ai_modules: "{ai_module}"
+    timestamp: "{frame_timestamp}"
+    detections:
+      - id: "{object_id}"
+        cls: "{class_name}"
+        confidence: "{confidence}"
+        bbox: ["{x1}", "{y1}", "{x2}", "{y2}"]
+        state: "{state}"
+        label: "{label}"
+        color: "{color}"
+
+
+  event:
+    ai_modules: "{ai_module}"
+    event_type: "{event_type}"
+    camera_id: "{camera_id}"
+    camera_code: "{camera_code}"
+    camera_name: "{camera_name}"
+    event_time: "{event_time}"
+    snapshot_url: "{snapshot_url}"
+
+  cmd_response:
+    request_id: "{request_id}"
+    camera_id: "{camera_id}"
+    status: "{status}"
+    data: "{data}"
