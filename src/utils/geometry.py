@@ -29,6 +29,12 @@ def centroid(box):
     return ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
 
 
+def bottom_center(box):
+    """Ground-contact anchor for ROI checks."""
+    x1, _y1, x2, y2 = box
+    return ((x1 + x2) / 2.0, y2)
+
+
 def euclidean_distance(p1, p2) -> float:
     return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
@@ -85,11 +91,11 @@ def point_in_polygon(point, polygon) -> bool:
 
 
 def box_in_any_polygon(box, polygons) -> bool:
-    """box được coi là trong ROI nếu tâm bbox nằm trong bất kỳ polygon nào."""
+    """box được coi là trong ROI nếu điểm đáy bbox nằm trong bất kỳ polygon nào."""
     if not polygons:
         return True  # không cấu hình ROI -> áp dụng toàn khung hình
-    c = centroid(box)
-    return any(point_in_polygon(c, poly["points"]) for poly in polygons)
+    anchor = bottom_center(box)
+    return any(point_in_polygon(anchor, poly["points"]) for poly in polygons)
 
 
 def normalise_roi_polygons(polygons, frame_w: int, frame_h: int) -> list[dict]:

@@ -9,7 +9,10 @@ reference snapshot chính xác.
 import logging
 import numpy as np
 import cv2
-import pyds
+try:
+    import pyds
+except ImportError:  # pragma: no cover - DeepStream runtime only
+    pyds = None
 
 from src.utils import geometry
 
@@ -25,6 +28,31 @@ class FrameHandler:
         self.rule_engines = rule_engines
         self.mqtt_client = mqtt_client
         self.frame_size_by_camera = frame_size_by_camera
+
+    @staticmethod
+    def _should_publish_detected_object(engine, camera_id, detected, dynamic_boxes):
+        """Keep live semantic boxes visible without relaxing alert rules."""
+        if not detected.get("publishable", True):
+            return False
+        if any(
+            geometry.intersection_over_box(detected["bbox"], dynamic_bbox)
+            > engine.object_max_dynamic_overlap
+            for dynamic_bbox in dynamic_boxes
+        ):
+            # Track candidate qua giai đoạn người đặt đồ nhưng không vẽ
+            # nhãn rác lên người/xe. Box chỉ xuất hiện khi vùng đã thoáng.
+            return False
+        track = engine.state_tracker.tracks.get(detected["object_id"])
+        if (
+            track is None
+            or track.camera_id != camera_id
+            or track.state == "IGNORED"
+        ):
+            return False
+        # Liveview cần thấy túi/rác đã được detector semantic xác nhận trong
+        # polygon ngay cả khi state machine còn đang đếm dwell/chờ target gate.
+        # Event object_abandoned vẫn chỉ publish ở ObjectStateTracker.
+        return True
 
     def __call__(self, camera_id, frame_num, detections, source_id, gst_buffer, batch_id):
         engine = self.rule_engines.get(camera_id)
@@ -81,27 +109,11 @@ class FrameHandler:
             item["bbox"] for item in vehicle_tracks.values()
         ]
         for detected in tracked_objects:
-            if not detected.get("publishable", True):
-                continue
-            if any(
-                geometry.intersection_over_box(detected["bbox"], dynamic_bbox)
-                > engine.object_max_dynamic_overlap
-                for dynamic_bbox in dynamic_boxes
-            ):
-                # Track candidate qua giai đoạn người đặt đồ nhưng không vẽ
-                # nhãn rác lên người/xe. Box chỉ xuất hiện khi vùng đã thoáng.
-                continue
-            track = engine.state_tracker.tracks.get(detected["object_id"])
-            if (
-                track is None
-                or track.camera_id != camera_id
-                or track.state == "IGNORED"
+            if not self._should_publish_detected_object(
+                engine, camera_id, detected, dynamic_boxes
             ):
                 continue
-            if engine.target_gate is not None and track.state != "ABANDONED":
-                # Candidate hình học chưa phải là một detection rác. Chỉ đưa
-                # object đã qua semantic gate ra hợp đồng MQTT/liveview.
-                continue
+            track = engine.state_tracker.tracks[detected["object_id"]]
             x1, y1, x2, y2 = detected["bbox"]
             bbox_payload_objects.append({
                 "object_id": track.object_id,
@@ -141,6 +153,9 @@ class FrameHandler:
 
     @staticmethod
     def _extract_frame_bgr_small(gst_buffer, batch_id):
+        if pyds is None:
+            logger.error("[AOD] pyds chưa được cài trong runtime hiện tại")
+            return None
         try:
             n_frame = pyds.get_nvds_buf_surface(hash(gst_buffer), batch_id)
             frame_rgba = np.array(n_frame, copy=True, order="C")

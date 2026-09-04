@@ -378,6 +378,11 @@ class StateAndRoiSafetyTests(unittest.TestCase):
         self.assertEqual(polygons[0]["points"][0], [50.0, 25.0])
         self.assertTrue(geometry.box_in_any_polygon((90, 40, 110, 60), polygons))
 
+    def test_roi_uses_bbox_ground_anchor_to_avoid_edge_flicker(self):
+        polygon = [{"name": "ground", "points": [[0, 50], [100, 50], [100, 100], [0, 100]]}]
+        self.assertTrue(geometry.box_in_any_polygon((40, 10, 60, 60), polygon))
+        self.assertFalse(geometry.box_in_any_polygon((40, 10, 60, 49), polygon))
+
 
 class DepartureSafetyTests(unittest.TestCase):
     def test_reference_is_captured_at_start_of_stationary_run(self):

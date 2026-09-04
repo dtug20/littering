@@ -11,6 +11,7 @@ import yaml
 from src.detection.vehicle_track_filter import VehicleTrackFilter
 from src.mqtt.camera_contract import camera_pipeline_signature, normalize_web_cameras
 from src.mqtt.mqtt_client import MqttAodClient
+from src.pipeline.probe_callbacks import FrameHandler
 from src.utils.geometry import iou
 
 
@@ -149,6 +150,30 @@ class WebCameraContractTests(unittest.TestCase):
         self.assertEqual(payload["camera_name"], "Camera Cổng Chính KCN")
         self.assertEqual(payload["ai_modules"], "LITTERING_DETECTION")
         self.assertEqual(payload["detections"][0]["confidence"], 0.735)
+
+    def test_live_semantic_object_is_published_before_abandoned_event(self):
+        class _Track:
+            camera_id = WebCameraContractTests.CAMERA_ID
+            state = "STATIC_NO_OWNER"
+
+        class _StateTracker:
+            tracks = {"bag-1": _Track()}
+
+        class _Engine:
+            object_max_dynamic_overlap = 0.35
+            target_gate = object()
+            state_tracker = _StateTracker()
+
+        detected = {
+            "object_id": "bag-1",
+            "bbox": (100, 100, 140, 150),
+            "publishable": True,
+        }
+        self.assertTrue(
+            FrameHandler._should_publish_detected_object(
+                _Engine(), self.CAMERA_ID, detected, []
+            )
+        )
 
 
 class VehicleTrackFilterTests(unittest.TestCase):
